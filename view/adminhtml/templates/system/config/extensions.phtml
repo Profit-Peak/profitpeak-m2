@@ -15,7 +15,6 @@ $modules = $this->getModuleList();
 		<tr style="border-bottom: 1px solid #000000; border-collapse: separate">
 			<td style="font-weight: bold; min-width: 350px;">Modules</td>
 			<td style="font-weight: bold; min-width: 100px;">Version</td>
-			<td style="font-weight: bold">Issues</td>
 		</tr>
 	</thead>
 	<tbody>
@@ -27,13 +26,6 @@ $modules = $this->getModuleList();
 						Not Installed
 					<?php else: ?>
 						<?php echo $module['version']; ?>
-					<?php endif; ?>
-				</td>
-				<td>
-					<?php if($module['issue']): ?>
-						<span title="Theres a problem with the extension installation. Please try reinstalling the extension or contact us at support@profitpeak.io for assistance." style="border-bottom: 1px dotted black;cursor: pointer;">Yes</span>
-					<?php else: ?>
-						No
 					<?php endif; ?>
 				</td>
 			</tr>

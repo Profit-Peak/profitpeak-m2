@@ -14,6 +14,7 @@ use Magento\Catalog\Api\Data\ProductInterface;
 use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory;
 use Magento\Catalog\Helper\Product;
 use Magento\Catalog\Api\ProductRepositoryInterface;
+use Magento\Framework\App\Config\ScopeConfigInterface;
 
 class Variants extends \Magento\Framework\App\Helper\AbstractHelper
 {
@@ -32,19 +33,39 @@ class Variants extends \Magento\Framework\App\Helper\AbstractHelper
      */
     protected $_productRepository;
 
+    /**
+     * @var ScopeConfigInterface
+     */
+    protected $_scopeConfig;
+
     public function __construct(
         CollectionFactory $productCollectionFactory,
         Product $productHelper,
         ProductRepositoryInterface $productRepository,
+        ScopeConfigInterface $scopeConfig
+
     ) {
         $this->_productCollectionFactory = $productCollectionFactory;
         $this->_productHelper = $productHelper;
         $this->_productRepository = $productRepository;
+        $this->_scopeConfig = $scopeConfig;
     }
 
 
     protected function buildConfigVariants($product)
     {
+        $priceAttribute = $this->_scopeConfig->getValue(
+            'profitpeak_tracking/sync/price_attribute',
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE,
+            $store_id ?? 1
+        ) ?? 'price';
+
+        $costAttribute = $this->_scopeConfig->getValue(
+            'profitpeak_tracking/sync/cost_attribute',
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE,
+            $store_id ?? 1
+        ) ?? 'cost';
+
         $variants = [];
         if($product && $product->getId()) {
             $childIds = $product->getTypeInstance()->getChildrenIds($product->getId());
@@ -64,7 +85,17 @@ class Variants extends \Magento\Framework\App\Helper\AbstractHelper
                         ->addAttributeToSelect('created_at')
                         ->addAttributeToSelect('updated_at')
                         ->addAttributeToSelect('manufacturer')
-                        ->addAttributeToSelect('weight');
+                        ->addAttributeToSelect('weight')
+                        ->addAttributeToSelect('cost');
+
+                    if($priceAttribute !== 'price') {
+                        $productCollection->addAttributeToSelect($priceAttribute);
+                    }
+
+                    if($costAttribute !== 'cost') {
+                        $productCollection->addAttributeToSelect($costAttribute);
+                    }
+
                     $productCollection->addIdFilter($childIds[0]);
                     $variants = $productCollection->getItems();
                 }

@@ -21,7 +21,6 @@ use Magento\Framework\Api\SearchCriteriaBuilder;
 use Magento\Framework\App\RequestInterface;
 use Magento\Framework\Reflection\DataObjectProcessor;
 use Magento\Framework\Webapi\Exception;
-use Magento\Framework\App\Config\ScopeConfigInterface;
 use ProfitPeak\Tracking\Logger\ProfitPeakLogger;
 
 class Product implements ProductSyncInterface
@@ -61,11 +60,6 @@ class Product implements ProductSyncInterface
      */
     protected $logger;
 
-    /**
-     * @var ScopeConfigInterface
-     */
-    protected $scopeConfig;
-
     public function __construct(
         Data $helper,
         ResourceConnection $resource,
@@ -73,8 +67,7 @@ class Product implements ProductSyncInterface
         ProductRepositoryInterface $productRepository,
         RequestInterface $request,
         DataObjectProcessor $dataObjectProcessor,
-        ProfitPeakLogger $logger,
-        ScopeConfigInterface $scopeConfig
+        ProfitPeakLogger $logger
     ) {
         $this->helper = $helper;
         $this->resource = $resource;
@@ -83,7 +76,6 @@ class Product implements ProductSyncInterface
         $this->request = $request;
         $this->dataObjectProcessor = $dataObjectProcessor;
         $this->logger = $logger;
-        $this->scopeConfig = $scopeConfig;
     }
 
 
@@ -93,6 +85,7 @@ class Product implements ProductSyncInterface
         $productId = $this->request->getParam('id', null);
         $limit = $this->request->getParam('limit', 200);
         $all = $this->request->getParam('all', '0') == '1';
+        $page = $this->request->getParam('page', 1);
 
         if (!is_numeric($limit)) {
             return $this->helper->sendJsonResponse([
@@ -106,11 +99,20 @@ class Product implements ProductSyncInterface
             ], Exception::HTTP_BAD_REQUEST);
         }
 
+        if (!is_numeric($page)) {
+            return $this->helper->sendJsonResponse([
+                'message' => 'Page required to be numeric',
+            ], Exception::HTTP_BAD_REQUEST);
+        }
+
         $limit = (int) $limit;
         $limit = $limit > Config::MAX_LIMIT ? Config::MAX_LIMIT : $limit;
 
+        $page = (int) $page;
+        $offset = ($page - 1 ) * $limit;
+
         // Fetch orders based on store_id, orderId, startDate, and endDate
-        $data = $this->executeGetData($store_id, $productId, $all, $limit);
+        $data = $this->executeGetData($store_id, $productId, $all, $limit, $offset);
 
         return $this->helper->sendJsonResponse($data);
     }
@@ -124,22 +126,10 @@ class Product implements ProductSyncInterface
         return $this->helper->sendJsonResponse($data);
     }
 
-    public function executeGetData($store_id = null, $productId = null, $all = false, $limit = 200)
+    public function executeGetData($store_id = null, $productId = null, $all = false, $limit = 200, $offset = 0)
     {
         $version = $this->helper->getVersion();
         $data = ['version' => $version, 'data' => []];
-
-        $priceAttribute = $this->scopeConfig->getValue(
-            'profitpeak_tracking/sync/price_attribute',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE,
-            $store_id ?? 1
-        ) ?? 'price';
-
-        $costAttribute = $this->scopeConfig->getValue(
-            'profitpeak_tracking/sync/cost_attribute',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE,
-            $store_id ?? 1
-        ) ?? 'cost';
 
         try {
             $connection = $this->resource->getConnection();
@@ -172,7 +162,7 @@ class Product implements ProductSyncInterface
                     []
                 )
                 ->where('pw.website_id = ?', $websiteId)
-                ->limit($limit)
+                ->limit($limit, $offset)
                 ->order('ps.updated_at ASC');
 
             if ($productId) {
@@ -196,34 +186,10 @@ class Product implements ProductSyncInterface
 
             $unsyncedProducts = $this->productRepository->getList($searchCriteria)->getItems();
 
-            $productIdsString = implode(',', $productIds);
-
-            $query = "SELECT p.entity_id, cp.category_id, cv.value AS category_name
-                        FROM catalog_product_entity p
-                        LEFT JOIN catalog_category_product cp ON p.entity_id = cp.product_id
-                        LEFT JOIN catalog_category_entity_varchar cv ON cp.category_id = cv.entity_id AND cv.store_id = 0
-                        WHERE cv.attribute_id = (
-                            SELECT attribute_id FROM eav_attribute
-                            WHERE entity_type_id = (SELECT entity_type_id FROM eav_entity_type WHERE entity_type_code = 'catalog_category')
-                            AND attribute_code = 'name'
-                        )
-                        AND p.entity_id IN ($productIdsString)";
-
-            $categories = $connection->fetchAll($query);
-
-            $productCategoryMap = [];
-            foreach ($categories as $row) {
-                $productCategoryMap[$row['entity_id']][] = $row['category_name'];
-            }
-
             // Process each product and format the response like the native API
             $productsArray = [];
             foreach ($unsyncedProducts as $product) {
                 $productId = $product->getId();
-
-                if (isset($productCategoryMap[$productId])) {
-                    $product->setData('categories', $productCategoryMap[$productId]);
-                }
 
                 // extension attributes
                 $extensionAttributes = $product->getExtensionAttributes();
@@ -238,12 +204,6 @@ class Product implements ProductSyncInterface
                 } else {
                     $extensionAttributes->setDynamicPrice(false);
                 }
-
-                $extensionAttributes->setCategories($product->getData('categories') ?? []);
-                $extensionAttributes->setPrice($product->getData($priceAttribute) ?? []);
-                $extensionAttributes->setCost($product->getData($costAttribute) ?? []);
-
-                $product->setExtensionAttributes($extensionAttributes);
 
                 $productData = $this->dataObjectProcessor->buildOutputDataArray(
                     $product,

@@ -9,6 +9,8 @@
 */
 namespace ProfitPeak\Tracking\Plugin;
 
+use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Catalog\Api\CategoryRepositoryInterface;
 use Magento\Catalog\Api\Data\ProductExtensionInterface;
 use Magento\Catalog\Api\Data\ProductInterface;
 use Magento\Catalog\Api\Data\ProductExtensionFactory;
@@ -41,6 +43,16 @@ class LoadProductExtensionsAttributes
 
 
     /**
+     * @var CategoryRepositoryInterface
+     */
+    private $categoryRepository;
+
+    /**
+     * @var ScopeConfigInterface
+     */
+    protected $scopeConfig;
+
+    /**
      * @param Variants $extensionFactory
      * @param StockRegistryInterface $extensionFactory
      * @param ProductExtensionFactory $extensionFactory
@@ -49,11 +61,15 @@ class LoadProductExtensionsAttributes
         Variants $variantsHelper,
         StockRegistryInterface $stockRegistry,
         ProductExtensionFactory $extensionFactory,
+        CategoryRepositoryInterface $categoryRepository,
+        ScopeConfigInterface $scopeConfig,
         ProfitPeakLogger $logger
     ) {
         $this->variantsHelper = $variantsHelper;
         $this->stockRegistry = $stockRegistry;
         $this->extensionFactory = $extensionFactory;
+        $this->categoryRepository = $categoryRepository;
+        $this->scopeConfig = $scopeConfig;
         $this->logger = $logger;
     }
 
@@ -68,6 +84,18 @@ class LoadProductExtensionsAttributes
         ProductInterface $entity,
         ProductExtensionInterface $extension = null
     ) {
+        $priceAttribute = $this->scopeConfig->getValue(
+            'profitpeak_tracking/sync/price_attribute',
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE,
+            $store_id ?? 1
+        ) ?? 'price';
+
+        $costAttribute = $this->scopeConfig->getValue(
+            'profitpeak_tracking/sync/cost_attribute',
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE,
+            $store_id ?? 1
+        ) ?? 'cost';
+
         try {
             if ($extension === null) {
                 $extension = $this->extensionFactory->create();
@@ -77,6 +105,7 @@ class LoadProductExtensionsAttributes
             if ($brand) {
                 $extension->setBrand($brand);
             }
+
 
             $extension->setVariants($this->variantsHelper->getVariants($entity));
 
@@ -88,7 +117,21 @@ class LoadProductExtensionsAttributes
                 }
             }
 
+            $categoryIds = $entity->getCategoryIds();
+            $categoryNames = [];
 
+            foreach ($categoryIds as $categoryId) {
+                try {
+                    $category = $this->categoryRepository->get($categoryId);
+                    $categoryNames[] = $category->getName();
+                } catch (NoSuchEntityException $e) {
+                    continue;
+                }
+            }
+
+            $extension->setCategories($categoryNames);
+            $extension->setPrice($entity->getData($priceAttribute) ?? []);
+            $extension->setCost($entity->getData($costAttribute) ?? []);
         } catch (\Zend_Db_Adapter_Exception $e) {
             $this->logger->info('Database error occurred - '. $e->getMessage());
         } catch (\Throwable $e) {

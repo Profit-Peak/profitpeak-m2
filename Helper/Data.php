@@ -123,8 +123,7 @@ class Data extends AbstractHelper
             [
                 'name' => 'ProfitPeak Tracking',
                 'code' => 'profitpeak_tracking',
-                'version' => ($this->moduleList->getOne(self::TRACKING_MODULE_NAME) ? $this->moduleList->getOne(self::TRACKING_MODULE_NAME)['setup_version'] : null),
-                'issue' => false
+                'version' => $this::getVersion()
             ]
         ];
 

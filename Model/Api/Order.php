@@ -124,6 +124,7 @@ class Order implements OrderSyncInterface
         $startDate = $this->request->getParam('start_date', null);
         $endDate = $this->request->getParam('end_date', null);
         $limit = $this->request->getParam('limit', 200);
+        $page = $this->request->getParam('page', 1);
         $all = $this->request->getParam('all', '0') == '1';
 
         if (!is_numeric($limit)) {
@@ -138,10 +139,19 @@ class Order implements OrderSyncInterface
             ], Exception::HTTP_BAD_REQUEST);
         }
 
+        if (!is_numeric($page)) {
+            return $this->helper->sendJsonResponse([
+                'message' => 'Page required to be numeric',
+            ], Exception::HTTP_BAD_REQUEST);
+        }
+
         $limit = (int) $limit;
         $limit = $limit > Config::MAX_LIMIT ? Config::MAX_LIMIT : $limit;
 
-        $data = $this->executeGetData($store_id, $orderId, $all, $startDate, $endDate, $limit);
+        $page = (int) $page;
+        $page = ($page - 1 ) * $limit;
+
+        $data = $this->executeGetData($store_id, $orderId, $all, $startDate, $endDate, $limit,  $offset);
 
         return $this->helper->sendJsonResponse($data);
     }
@@ -154,7 +164,7 @@ class Order implements OrderSyncInterface
         return $this->helper->sendJsonResponse($data);
     }
 
-    public function executeGetData($store_id = null, $orderId = null, $all = false, $startDate = null, $endDate = null, $limit = 200)
+    public function executeGetData($store_id = null, $orderId = null, $all = false, $startDate = null, $endDate = null, $limit = 200, $offset = 0)
     {
         $version = $this->helper->getVersion();
         $data = ['version' => $version, 'data' => []];
@@ -177,7 +187,7 @@ class Order implements OrderSyncInterface
                 ['sent', 'user_agent', 'area_code']
             )
             ->where('so.store_id = ?', $store_id)
-            ->limit($limit)
+            ->limit($limit, $page)
             ->order('os.updated_at ASC');
 
         if ($orderId) {
